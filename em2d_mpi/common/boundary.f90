@@ -78,7 +78,7 @@ contains
 
   end subroutine boundary__init
 
-
+!目的: 粒子の境界条件を処理します。粒子がシミュレーション領域の端（X方向）や、担当ランクの端（Y方向）を越えた場合の処理を行います。
   subroutine boundary__particle(up,np2)
 
     integer, intent(inout) :: np2(nys:nye,nsp)

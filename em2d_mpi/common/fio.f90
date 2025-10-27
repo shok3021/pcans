@@ -1,4 +1,4 @@
-module fio
+module fio !File Input/Output module
 
   implicit none
 
@@ -10,6 +10,9 @@ module fio
   public :: fio__param
   public :: fio__energy
 
+!save 属性がついている変数は、サブルーチンを呼び出した後も値が保持されます。
+!is_init = .false. は、初期化が完了したかを示すフラグです。
+!np, nsp, nxgs などは、fio__init で設定され、他の fio__ サブルーチン（fio__output など）がファイル入出力時に参照するために保存されます。
 
   logical, save :: is_init = .false.
   integer, save :: np, nsp, nxgs, nxge, nygs, nyge, nxs, nxe, nys, nye, nsfo, bc, n0
@@ -24,6 +27,11 @@ module fio
 
 contains
 
+!これは fio モジュールを初期化するサブルーチンです。
+!目的: メインプログラムや init モジュールから、グリッドサイズ（nxgsなど）、粒子数（np）、MPI情報（nrankなど）、ファイル名（dir_inなど）といったシミュレーションの基本情報をすべて受け取ります。
+!動作:受け取った引数（np_in など）を、モジュール内の save 属性を持つ変数（np など）にコピーして保存します。
+!q（電荷）と r（質量）の配列のメモリを確保（allocate）し、値をコピーします。
+!最後に、初期化が完了したことを示すフラグ is_init = .true. を立てます。
 
   subroutine fio__init(np_in,nsp_in,&
                        nxgs_in,nxge_in,nygs_in,nyge_in,nxs_in,nxe_in,nys_in,nye_in,nsfo_in,bc_in, &
@@ -82,7 +90,8 @@ contains
 
   end subroutine fio__init
 
-
+!これはシミュレーションのスナップショット（リスタートデータ）を出力するサブルーチンです。
+!目的: 指定された時刻 it での、すべての粒子データ（up）と電磁場データ（uf）をファイルに保存します。
   subroutine fio__output(up,uf,np2,it)
 
     integer, intent(in) :: np2(nys:nye,nsp)
@@ -116,7 +125,8 @@ contains
 
   end subroutine fio__output
 
-
+!これは fio__output で保存されたリスタートデータを読み込むサブルーチンです。
+!目的: シミュレーションを途中から再開するために、ファイルから粒子データ（up）と電磁場データ（uf）を読み込みます。
   subroutine fio__input(up,uf,np2,it0,file)
 
     character(len=*), intent(in) :: file
@@ -157,7 +167,7 @@ contains
 
   end subroutine fio__input
 
-
+!これはシミュレーションの物理パラメータを人間が読める形式で保存するサブルーチンです。
   subroutine fio__param(np2,temp,rtemp,fpe,fge,ldb)
 
     integer, intent(in) :: np2(nys:nye,nsp)
@@ -200,7 +210,7 @@ contains
     
   end subroutine fio__param
 
-
+!これはシミュレーションのエネルギーを計算し、ファイルに記録するサブルーチンです。
   subroutine fio__energy(up,uf,np2,it)
 
     integer, intent(in) :: it,np2(nys:nye,nsp)
