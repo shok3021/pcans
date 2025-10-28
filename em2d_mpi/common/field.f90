@@ -227,6 +227,7 @@ contains
 
 
   subroutine cgm(df,gkl)
+    use mpi
 
     use boundary, only : boundary__phi
 
