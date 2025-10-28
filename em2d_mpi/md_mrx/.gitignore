@@ -1,2 +1,12 @@
+# Build artifacts
+a.out
+*.o
+*.mod
+
+# Data directories
 dat/
 psd/
+
+# Log/Error files
+error.log
+run_mrx.sh.*
