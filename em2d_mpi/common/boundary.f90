@@ -18,7 +18,6 @@ module boundary
   real(8), save :: delx, d_delx
   real(8), save :: u0x_bnd(2), u0y_bnd(2), u0z_bnd(2), delx_in
 
-
 contains
 
 
