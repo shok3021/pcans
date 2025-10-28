@@ -6,7 +6,6 @@
 
 # Data & Log files
 dat/
-psd/
 mom/
 *.log
 run_mrx.sh.*
