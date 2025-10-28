@@ -1,0 +1,12 @@
+# Build artifacts
+*.o
+*.mod
+*.a
+*.out
+
+# Data & Log files
+dat/
+psd/
+mom/
+*.log
+run_mrx.sh.*
