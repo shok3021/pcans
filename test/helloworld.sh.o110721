@@ -1,0 +1,8 @@
+--- DEBUG INFO (Attempt H) ---
+Forcing bootstrap method to 'ssh' (bypassing PBS PMI)
+Hostname is: sa107
+------------------------------
+ Hello from process            0  of            1
+ Hello from process            0  of            1
+ Hello from process            0  of            1
+ Hello from process            0  of            1
