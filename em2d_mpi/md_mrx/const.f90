@@ -4,7 +4,7 @@ module const
 
 !!************************ NUMERICAL CONSTANTS ***********************************!!
   integer, parameter :: nx   = 320+1     ! NUMBER OF GRID POINTS IN X
-  integer, parameter :: ny   = 648       ! NUMBER OF GRID POINTS IN Y
+  integer, parameter :: ny   = 640       ! NUMBER OF GRID POINTS IN Y
   integer, parameter :: nxgs = 2         ! START POINT IN X
   integer, parameter :: nxge = nxgs+nx-1 ! END POINT
   integer, parameter :: nygs = 2         ! START POINT IN Y
