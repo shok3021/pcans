@@ -6,4 +6,4 @@
 #PBS -l walltime=03:00:00
 module load intel/2025.1
 cd /home/shok/pcans/em2d_mpi/md_mrx
-./a.out 0
+./a.out
