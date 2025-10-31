@@ -7,6 +7,5 @@
 # Data & Log files
 dat/
 mom/
-python/
 *.log
 run_mrx.sh.*
