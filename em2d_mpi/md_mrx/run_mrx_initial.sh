@@ -8,4 +8,10 @@ module load intel/2025.1
 module load openmpi/5.0.7/gcc11.5.0
 
 cd ${PBS_O_WORKDIR}
+
+export FC=$(which mpif90)
+
+make clean
+make
+
 mpirun ./a.out
