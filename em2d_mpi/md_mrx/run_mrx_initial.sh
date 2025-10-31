@@ -6,4 +6,5 @@
 #PBS -l walltime=00:5:00
 module load intel/2025.1
 cd /home/shok/pcans/em2d_mpi/md_mrx
+ifort -g -traceback -check bounds your_code.f90
 ./a.out
