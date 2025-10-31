@@ -1,6 +1,5 @@
---- DEBUG INFO (Attempt G) ---
-Forcing PMI Provider to 'pmi2' (disabling PMIx)
-Hostname is: sa107
+--- DEBUG INFO (Attempt P) ---
+Combining Manual's PBS line (mpiprocs=4) with psm3 AND mpirun -np 4
 ------------------------------
  Hello from process            0  of            1
  Hello from process            0  of            1

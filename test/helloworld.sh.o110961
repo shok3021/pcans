@@ -1,0 +1,20 @@
+--- DEBUG INFO (Attempt O) ---
+Clean retry of Manual's method (psm3 + mpiprocs + no -np)
+Includes cd and HYDRA_DEBUG=1 for spawn details
+------------------------------
+[mpiexec@sa107] Launch arguments: /system/apps/rhel9/dev/oneapi/2025.1/mpi/2021.15/bin//hydra_bstrap_proxy --upstream-host sa107 --upstream-port 42377 --pgid 0 --launcher rsh --launcher-number 2 --launcher-exec /opt/pbs/bin/pbs_tmrsh --base-path /system/apps/rhel9/dev/oneapi/2025.1/mpi/2021.15/bin/ --tree-width 16 --tree-level 1 --time-left -1 --launch-type 2 --debug --proxy-id 0 --node-id 0 --subtree-size 1 --upstream-fd 7 /system/apps/rhel9/dev/oneapi/2025.1/mpi/2021.15/bin//hydra_pmi_proxy --usize -1 --auto-cleanup 1 --abort-signal 9 
+[proxy:0:0@sa107] 
+  -----------------------------------------
+            Topology parameters
+ -----------------------------------------
+ Number of packages     : 1
+ Number of NUMA nodes   : 1
+ Number of L3 caches    : 1
+ Number of L2 caches    : 4
+ Number of L1 caches    : 4
+ Number of cores        : 4
+ Number of threads      : 4
+ Number of hwloc groups : 0
+ Topology restricted    : yes
+ -----------------------------------------
+ Hello from process            0  of            1

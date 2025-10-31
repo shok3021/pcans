@@ -1,25 +1,26 @@
 #!/bin/bash
-
 #PBS -q A_dev
 #PBS -P NIFS25KIST067
 #PBS -l select=1:ncpus=4:mem=6gb
 #PBS -l walltime=00:5:00
+
 module load intel/2025.1
-cd $PBS_O_WORKDIR
 
+# Load the Open MPI module you tested interactively
+module load openmpi/5.0.7/gcc11.5.0
 
-# 1. ホスト名を取得
-HOSTNAME=$(head -n 1 $PBS_NODEFILE)
-
-# --- デバッグ情報 ---
-echo "--- DEBUG INFO (Attempt H) ---"
-echo "Forcing bootstrap method to 'ssh' (bypassing PBS PMI)"
-echo "Hostname is: $HOSTNAME"
+# --- Debug Info ---
+echo "--- DEBUG INFO (Attempt Q - Using Open MPI) ---"
+echo "Using Open MPI module: openmpi/5.0.7/gcc11.5.0"
+echo "Using mpirun -np 4"
 echo "------------------------------"
 
-# ↓↓↓ これが今回の解決策 ↓↓↓
-# PBSのPMI連携をあきらめ、ssh を強制的に使わせる
-export I_MPI_HYDRA_BOOTSTRAP=ssh
+# Change to the submission directory
+cd ${PBS_O_WORKDIR}
 
-# "sa107" というホストで 4 プロセス起動しろ、と明示
-mpirun -np 4 -hosts $HOSTNAME ./mpi_hello_world
+# Recompile with Open MPI's mpif90 just in case
+# (It's good practice to compile and run with the same MPI)
+mpif90 -o mpi_hello_world mpi_hello_world.f90
+
+# Run with Open MPI's mpirun, explicitly specifying 4 processes
+mpirun -np 4 ./mpi_hello_world

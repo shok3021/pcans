@@ -1,0 +1,4 @@
+--- DEBUG INFO (Attempt Q - Using Open MPI) ---
+Using Open MPI module: openmpi/5.0.7/gcc11.5.0
+Using mpirun -np 4
+------------------------------
