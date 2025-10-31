@@ -5,4 +5,5 @@
 #PBS -l select=1:ncpus=12:mem=6gb
 #PBS -l walltime=00:5:00
 module load intel/2025.1
+cd /home/shok/pcans/em2d_mpi/md_mrx
 ./a.out
