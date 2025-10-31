@@ -31,8 +31,7 @@ contains
     call MPI_COMM_RANK(ncomw, nrank, nerr)
 
     if(nsize /= nproc) then
-       write(*,*) 'Rank ', nrank, ': ** ERROR 1: proc number mismatch ** nsize=', nsize, ' nproc=', nproc
-       ! call MPI_ABORT(ncomw, 9, nerr)
+       call MPI_ABORT(ncomw, 9, nerr)
        call MPI_FINALIZE(nerr)
        stop '** proc number mismatch **'
     endif
