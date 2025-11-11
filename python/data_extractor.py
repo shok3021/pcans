@@ -118,14 +118,37 @@ def get_physical_region(global_fields, header):
     nygs, nyge = header['nygs'], header['nyge']
     
     # Fortranのインデックスは 1 から始まるが、NumPyは 0 から始まる
-    # global_fields は (NY_full, NX_full)
-    # Ghostセルは各辺に1つずつある
-    phys_start_x = 1 # Ghostセルをスキップ
-    phys_end_x   = phys_start_x + (nxge - nxgs + 1)
-    phys_start_y = 1 # Ghostセルをスキップ
-    phys_end_y   = phys_start_y + (nyge - nygs + 1)
+    # global_fields は (6, NY_full, NX_full)
     
-    # (6, NY_phys, NX_phys) の配列を返す
+    # ★★★ 修正が必要な箇所 ★★★
+    # グリッド点数ではなく、セル数を取得する:
+    NX_CELLS = header['nxge'] - header['nxgs'] + 1
+    NY_CELLS = header['nyge'] - header['nygs'] + 1
+    
+    # Ghostセルは各辺に1つずつあり、それらがインデックス 0 と -1 に対応すると仮定
+    phys_start_x = 1 # Ghostセルをスキップ
+    # 物理領域の終了インデックスは、開始インデックス + セル数
+    # しかし、読み込まれたデータが (640, 321) の形状で、これはグリッド点数 (NY=640, NX=321) であるため、
+    # 物理セル (NY=639, NX=320) を抽出するには、各軸で終端を -1 する必要があります。
+    phys_end_x   = phys_start_x + (NX_CELLS - 1) # 物理セル数 NX_CELLS-1 = 320
+    phys_start_y = 1 
+    phys_end_y   = phys_start_y + (NY_CELLS - 1) # 物理セル数 NY_CELLS-1 = 639
+    
+    # 読み込まれたデータが (NY_full, NX_full) = (642, 323) のサイズであると仮定すると、
+    # 物理領域は [1:640, 1:321] のサイズ (640, 321) です。
+    # 必要なのは (639, 320) のサイズです。
+
+    # Fortranの流儀に従い、グリッド点数ではなく、セル数で切り出す:
+    NX_CELLS_PHYS = (header['nxge'] - header['nxgs'] + 1) - 1 # 321 - 1 = 320
+    NY_CELLS_PHYS = (header['nyge'] - header['nygs'] + 1) - 1 # 640 - 1 = 639
+    
+    # 切り出す NumPy のスライスは [1: NY_CELLS_PHYS + 1, 1: NX_CELLS_PHYS + 1]
+    phys_start_x = 1
+    phys_end_x   = phys_start_x + NX_CELLS_PHYS # 1 + 320 = 321
+    phys_start_y = 1
+    phys_end_y   = phys_start_y + NY_CELLS_PHYS # 1 + 639 = 640
+    
+    # (6, NY_phys, NX_phys) の配列を返す (サイズ 6, 639, 320)
     return global_fields[:, phys_start_y:phys_end_y, phys_start_x:phys_end_x]
 
 def save_data_to_txt(data_2d, label, timestep, out_dir, filename):
