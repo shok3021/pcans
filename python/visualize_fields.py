@@ -142,75 +142,84 @@ def save_data_to_txt(data_2d, label, timestep, out_dir, filename):
 
 
 # =======================================================
-# メイン処理
+# メイン処理 (変更後)
 # =======================================================
 def main():
-    # ★★★ 変更点 1: コマンドライン引数から timestep を取得 ★★★
-    if len(sys.argv) < 2:
-        print("使用方法: python data_extractor.py [timestep]")
-        print("例: python data_extractor.py 003000")
+    # ★★★ 変更点 1: コマンドライン引数から 3 つの引数 (start, end, step) を取得 ★★★
+    if len(sys.argv) < 4:
+        print("使用方法: python data_extractor.py [開始のステップ] [終了のステップ] [間隔]")
+        print("例: python data_extractor.py 000000 014000 500")
         sys.exit(1)
         
-    timestep = sys.argv[1] # 最初の引数をタイムステップとして取得
-    print(f"--- ターゲットタイムステップ: {timestep} ---")
+    try:
+        start_step = int(sys.argv[1])
+        end_step   = int(sys.argv[2])
+        step_size  = int(sys.argv[3])
+    except ValueError:
+        print("エラー: すべての引数 (開始、終了、間隔) は整数である必要があります。")
+        sys.exit(1)
+        
+    print(f"--- 処理範囲: 開始={start_step}, 終了={end_step}, 間隔={step_size} ---")
     
     # 環境に応じてこのパスを調整してください
     data_dir = os.path.join('/home/shok/pcans/em2d_mpi/md_mrx/dat/')
     
     SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-    OUTPUT_DIR = os.path.join(SCRIPT_DIR, 'extracted_data') # 出力ディレクトリ名を変更
+    OUTPUT_DIR = os.path.join(SCRIPT_DIR, 'extracted_data') 
     os.makedirs(OUTPUT_DIR, exist_ok=True)
     print(f"--- 出力先ディレクトリ: {OUTPUT_DIR} ---")
     
-    
-    file_pattern = os.path.join(data_dir, f'{timestep}_rank=*.dat') 
-    
-    result = load_and_stitch_fortran_binary(file_pattern)
-    
-    if result is None:
-        print("処理を終了します。")
-        return
+    # ★★★ 変更点 2: タイムステップを反復処理するループ ★★★
+    # NumPyの arange を使ってステップのリストを生成
+    # end_step も含むように + step_size
+    for current_step in range(start_step, end_step + step_size, step_size):
         
-    global_fields, header = result
+        # タイムステップの文字列を '000500' のようにゼロ埋め6桁でフォーマット
+        timestep = f"{current_step:06d}" 
+        print(f"\n=======================================================")
+        print(f"--- ターゲットタイムステップ: {timestep} の処理を開始 ---")
+        print(f"=======================================================")
 
-    # --- 1. 物理領域を切り出す (規格化された値) ---
-    phys_fields = get_physical_region(global_fields, header)
-    
-    # 各成分を切り出し
-    bx_phys = phys_fields[0, :, :]
-    by_phys = phys_fields[1, :, :]
-    bz_phys = phys_fields[2, :, :]
-    ex_phys = phys_fields[3, :, :]
-    ey_phys = phys_fields[4, :, :]
-    ez_phys = phys_fields[5, :, :]
+        file_pattern = os.path.join(data_dir, f'{timestep}_rank=*.dat') 
+        
+        # --- Fortranバイナリの読み込みと結合 ---
+        start_time = time.time()
+        result = load_and_stitch_fortran_binary(file_pattern)
+        end_time = time.time()
+        
+        if result is None:
+            print(f"警告: タイムステップ {timestep} のファイルが見つからないか、読み込みに失敗しました。スキップします。")
+            continue # 次のステップへ
+            
+        global_fields, header = result
+        print(f"  -> 処理時間 (読み込み/結合): {end_time - start_time:.2f} 秒")
 
-    # --- 2. 各物理量をテキストファイルに保存 ---
-    
-    # (a) Bx
-    save_data_to_txt(bx_phys, 'Magnetic Field (Bx)', 
-                     timestep, OUTPUT_DIR, 'Bx')
+        # --- 1. 物理領域を切り出す (規格化された値) ---
+        phys_fields = get_physical_region(global_fields, header)
+        
+        # 各成分を切り出し
+        bx_phys = phys_fields[0, :, :]
+        by_phys = phys_fields[1, :, :]
+        bz_phys = phys_fields[2, :, :]
+        ex_phys = phys_fields[3, :, :]
+        ey_phys = phys_fields[4, :, :]
+        ez_phys = phys_fields[5, :, :]
 
-    # (b) By
-    save_data_to_txt(by_phys, 'Magnetic Field (By)', 
-                     timestep, OUTPUT_DIR, 'By')
-    
-    # (c) Bz
-    save_data_to_txt(bz_phys, 'Magnetic Field (Bz)', 
-                     timestep, OUTPUT_DIR, 'Bz')
+        # --- 2. 各物理量をテキストファイルに保存 ---
+        # 処理を関数内にまとめても良いが、ここでは元の構造を維持しつつループ内に配置
+        
+        save_data_to_txt(bx_phys, 'Magnetic Field (Bx)', timestep, OUTPUT_DIR, 'Bx')
+        save_data_to_txt(by_phys, 'Magnetic Field (By)', timestep, OUTPUT_DIR, 'By')
+        save_data_to_txt(bz_phys, 'Magnetic Field (Bz)', timestep, OUTPUT_DIR, 'Bz')
+        save_data_to_txt(ex_phys, 'Electric Field (Ex)', timestep, OUTPUT_DIR, 'Ex')
+        save_data_to_txt(ey_phys, 'Electric Field (Ey)', timestep, OUTPUT_DIR, 'Ey')
+        save_data_to_txt(ez_phys, 'Electric Field (Ez)', timestep, OUTPUT_DIR, 'Ez')
+        
+        print(f"--- タイムステップ {timestep} の処理が完了しました ---")
 
-    # (d) Ex
-    save_data_to_txt(ex_phys, 'Electric Field (Ex)', 
-                     timestep, OUTPUT_DIR, 'Ex')
-
-    # (e) Ey
-    save_data_to_txt(ey_phys, 'Electric Field (Ey)', 
-                     timestep, OUTPUT_DIR, 'Ey')
-    
-    # (f) Ez
-    save_data_to_txt(ez_phys, 'Electric Field (Ez)', 
-                     timestep, OUTPUT_DIR, 'Ez')
-    
-    print("\n--- 電磁場6成分のデータ抽出・保存が完了しました ---")
+    print("\n=======================================================")
+    print("=== 全ての指定されたタイムステップの処理が完了しました ===")
+    print("=======================================================")
 
 
 # --- スクリプトとして実行された場合にmain()を呼び出す ---
