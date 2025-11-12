@@ -5,8 +5,9 @@
 *.out
 
 # Data & Log files
-dat/
+dat/*_rank=*.dat
 mom/
+psd/
 final_plots/
 *.log
 run_mrx.sh.*
