@@ -5,7 +5,7 @@
 *.out
 
 # Data & Log files
-dat/*_rank=*.dat
+dat/
 mom/
 psd/
 final_plots/
