@@ -5,7 +5,9 @@
 *.out
 
 # Data & Log files
-dat/
+dat/*.dat
+!dat/init_param.dat
+!dat/energy.dat
 mom/
 psd/
 final_plots/
