@@ -12,3 +12,4 @@ final_plots/
 *.log
 run_mrx.sh.*
 raw_particle_data/
+helloworld.sh.*
