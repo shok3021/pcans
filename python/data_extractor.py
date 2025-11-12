@@ -3,14 +3,22 @@ import os
 import glob
 import sys
 import time
-from scipy.io import FortranFile
+
+# --- Scipy をインポート ---
+try:
+    from scipy.io import FortranFile
+except ImportError:
+    print("エラー: 'scipy' ライブラリが見つかりません。")
+    print("ターミナルで 'pip install scipy' を実行してください。")
+    sys.exit(1)
 
 # =======================================================
-# Fortranバイナリ読み込み関数 (粒子データ抽出ロジックを追加)
+# Fortranバイナリ読み込み関数 (変更なし)
 # =======================================================
-def load_and_stitch_fortran_binary(pattern, output_dir_particles, timestep):
+def load_and_stitch_fortran_binary(pattern):
     """
-    Fortranバイナリファイルを読み込み、フィールドを結合し、粒子生データを保存する。
+    fio__output (Fortran) によって書かれたバイナリファイルを読み込み、
+    電磁場データ (uf) を結合（スティッチ）します。
     """
     
     file_list = sorted(glob.glob(pattern))
@@ -39,7 +47,8 @@ def load_and_stitch_fortran_binary(pattern, output_dir_particles, timestep):
             header_data = ff.read_record(dtype=header_dtype)[0]
             all_headers[f] = header_data
             
-            global_nx_full = header_data['nxge'] - header_data['nxgs'] + 1 + 2
+            # グローバルグリッドサイズを決定 (Ghostセルを含む)
+            global_nx_full = header_data['nxge'] - header_data['nxgs'] + 1 + 2 
             global_ny_full = header_data['nyge'] - header_data['nygs'] + 1 + 2
             
             ff.close()
@@ -52,88 +61,42 @@ def load_and_stitch_fortran_binary(pattern, output_dir_particles, timestep):
         print("エラー: グローバルグリッドサイズを決定できませんでした。")
         return None
         
+    print(f"  -> グローバルグリッドサイズ (Ghost含む) を (NX={global_nx_full}, NY={global_ny_full}) と決定しました。")
+
     # フィールドは 6成分 (Bx, By, Bz, Ex, Ey, Ez)
     global_fields = np.zeros((6, global_ny_full, global_nx_full))
     
-    # Fortranヘッダを代表ファイルから取得
-    representative_header = all_headers[file_list[0]]
-    NP_max = representative_header['np']
-    NSP = representative_header['nsp']
-    
     print("  ... パス 2/2: データを読み込み・結合中 ...")
     
-    for rank, (f, header) in enumerate(all_headers.items()):
+    for f, header in all_headers.items():
         try:
             ff = FortranFile(f, 'r')
             
-            # --- 1. ヘッダレコード (スキップ) ---
+            # ヘッダとパーティクル関連レコードをスキップ
             ff.read_record(dtype=header_dtype) 
-            
-            # --- 2. np2 (粒子数マップ) ---
-            NY_local = header['nye'] - header['nys'] + 1
-            # np2 は (NY_local, NSP) の形状で書かれている
-            np2_flat = ff.read_ints('i4')
-            np2_local = np2_flat.reshape((NY_local, NSP), order='F')
+            ff.read_ints('i4')   # Record 2: np2 (スキップ)
+            ff.read_reals('f8')  # Record 3: q (スキップ)
+            ff.read_reals('f8')  # Record 4: r (スキップ)
 
-            # --- 3. q (電荷) ---
-            ff.read_reals('f8') 
-            
-            # --- 4. r (質量) ---
-            ff.read_reals('f8') 
-
-            # --- 5. uf (フィールドデータ) ---
+            # ローカルデータサイズを計算
             nx_local_written = header['nxe'] - header['nxs'] + 3
             ny_local_written = header['nye'] - header['nys'] + 3
             data_flat = ff.read_reals('f8')
             
+            if data_flat.size != (6 * nx_local_written * ny_local_written):
+                raise ValueError(f"Field (uf): データサイズ不一致。 期待値={6 * nx_local_written * ny_local_written}, 実際={data_flat.size}")
+            
+            # Fortranの列優先 (order='F') で読み込み、 (6, NX_local, NY_local) の形にする
             field_data_local = data_flat.reshape((6, nx_local_written, ny_local_written), order='F')
             
-            # グローバル配列への貼り付け (フィールド)
+            # グローバル配列への貼り付け位置を計算 (Ghostセルを含むインデックス)
             g_start_x = header['nxs'] - header['nxgs']
             g_end_x   = g_start_x + nx_local_written
             g_start_y = header['nys'] - header['nygs']
             g_end_y   = g_start_y + ny_local_written
+
+            # Python/NumPyの標準形式 (6, NY, NX) にするために転置 (0, 2, 1) を行う
             global_fields[:, g_start_y:g_end_y, g_start_x:g_end_x] = field_data_local.transpose(0, 2, 1)
-
-            # --- 6. up (粒子データ) ---
-            # up は (5, NP_max, NY_local, NSP) の形状で書かれている
-            # NP_max (200 * NX), NY_local (nys:nye のサイズ), NSP (2)
-            particles_flat = ff.read_reals('f8')
-            
-            # (5, NP, NY_local, NSP) の形状に戻す
-            expected_size = 5 * NP_max * NY_local * NSP
-            if particles_flat.size != expected_size:
-                raise ValueError(f"Particle (up): データサイズ不一致。 期待値={expected_size}, 実際={particles_flat.size}")
-                
-            particles_local = particles_flat.reshape((5, NP_max, NY_local, NSP), order='F')
-            
-            # --- 粒子データの保存 ---
-            for isp in range(NSP):
-                species_label = 'ion' if isp == 0 else 'electron'
-                output_file = os.path.join(output_dir_particles, 
-                                           f'raw_{timestep}_{species_label}_rank_{rank}.txt')
-                
-                # 実際に存在する粒子を抽出して保存 (不要なゼロパディングは除く)
-                # (X, Y, Vx, Vy, Vz) の順に結合し、粒子数がゼロでない行のみを選択
-                all_particles_list = []
-                for j in range(NY_local):
-                    # Fortranの nys:nye の範囲を NumPy の 0:NY_local-1 にマッピング
-                    y_idx = j
-                    # 実際に存在する粒子数
-                    n_actual = np2_local[y_idx, isp] 
-                    
-                    if n_actual > 0:
-                        # (5, NP_max) -> (NP_max, 5) の形状に転置し、n_actual 行を抽出
-                        current_particles = particles_local[:, :n_actual, y_idx, isp].transpose(1, 0)
-                        all_particles_list.append(current_particles)
-                
-                if all_particles_list:
-                    combined_particles = np.concatenate(all_particles_list, axis=0)
-                    np.savetxt(output_file, combined_particles, fmt='%.10e', delimiter=',')
-                    print(f"  -> Rank {rank}, {species_label}: {len(combined_particles)} 粒子の生データを保存しました。")
-                else:
-                    print(f"  -> Rank {rank}, {species_label}: 粒子データなし。")
-
 
             ff.close() 
 
@@ -141,38 +104,71 @@ def load_and_stitch_fortran_binary(pattern, output_dir_particles, timestep):
             print(f"    エラー: {f} のデータ読み込みまたは変形に失敗: {e}")
             return None
 
-    print("  ... 全ファイルの処理が完了しました。")
-    return global_fields, representative_header
+    print("  ... 全ファイルの結合が完了しました。")
+    return global_fields, all_headers[file_list[0]]
 
 
-# ... (get_physical_region, save_data_to_txt の定義は変更なし) ...
+# =======================================================
+# データ抽出・保存関数
+# =======================================================
 
 def get_physical_region(global_fields, header):
     """Ghostセルを除いた物理領域を切り出す (規格化された値)"""
-    # Fortranの const モジュールから nx=321, ny=640 と仮定
+    nxgs, nxge = header['nxgs'], header['nxge']
+    nygs, nyge = header['nygs'], header['nyge']
+    
+    # Fortranのインデックスは 1 から始まるが、NumPyは 0 から始まる
+    # global_fields は (6, NY_full, NX_full)
+    
+    # ★★★ 修正が必要な箇所 ★★★
+    # グリッド点数ではなく、セル数を取得する:
+    NX_CELLS = header['nxge'] - header['nxgs'] + 1
+    NY_CELLS = header['nyge'] - header['nygs'] + 1
+    
+    # Ghostセルは各辺に1つずつあり、それらがインデックス 0 と -1 に対応すると仮定
+    phys_start_x = 1 # Ghostセルをスキップ
+    # 物理領域の終了インデックスは、開始インデックス + セル数
+    # しかし、読み込まれたデータが (640, 321) の形状で、これはグリッド点数 (NY=640, NX=321) であるため、
+    # 物理セル (NY=639, NX=320) を抽出するには、各軸で終端を -1 する必要があります。
+    phys_end_x   = phys_start_x + (NX_CELLS - 1) # 物理セル数 NX_CELLS-1 = 320
+    phys_start_y = 1 
+    phys_end_y   = phys_start_y + (NY_CELLS - 1) # 物理セル数 NY_CELLS-1 = 639
+    
+    # 読み込まれたデータが (NY_full, NX_full) = (642, 323) のサイズであると仮定すると、
+    # 物理領域は [1:640, 1:321] のサイズ (640, 321) です。
+    # 必要なのは (639, 320) のサイズです。
+
+    # Fortranの流儀に従い、グリッド点数ではなく、セル数で切り出す:
     NX_CELLS_PHYS = (header['nxge'] - header['nxgs'] + 1) - 1 # 321 - 1 = 320
     NY_CELLS_PHYS = (header['nyge'] - header['nygs'] + 1) - 1 # 640 - 1 = 639
     
-    # 物理領域は Ghost セルの次のインデックスから始まる [1:NY_CELLS_PHYS+1, 1:NX_CELLS_PHYS+1]
-    phys_start = 1
-    phys_end_x = phys_start + NX_CELLS_PHYS
-    phys_end_y = phys_start + NY_CELLS_PHYS
+    # 切り出す NumPy のスライスは [1: NY_CELLS_PHYS + 1, 1: NX_CELLS_PHYS + 1]
+    phys_start_x = 1
+    phys_end_x   = phys_start_x + NX_CELLS_PHYS # 1 + 320 = 321
+    phys_start_y = 1
+    phys_end_y   = phys_start_y + NY_CELLS_PHYS # 1 + 639 = 640
     
     # (6, NY_phys, NX_phys) の配列を返す (サイズ 6, 639, 320)
-    return global_fields[:, phys_start:phys_end_y, phys_start:phys_end_x]
+    return global_fields[:, phys_start_y:phys_end_y, phys_start_x:phys_end_x]
 
 def save_data_to_txt(data_2d, label, timestep, out_dir, filename):
     """
     2Dデータをテキストファイルに保存する。
     """
     output_file = os.path.join(out_dir, f'data_{timestep}_{filename}.txt')
+    
+    # データをCSV形式で保存 (区切り文字: カンマ)
+    # numpy.savetxt はデータのみを書き出す
     np.savetxt(output_file, data_2d, fmt='%.10e', delimiter=',') 
+    
     print(f"-> 規格化された {label} データを {output_file} に保存しました。")
 
+
 # =======================================================
-# メイン処理
+# メイン処理 (変更後)
 # =======================================================
 def main():
+    # ★★★ 変更点 1: コマンドライン引数から 3 つの引数 (start, end, step) を取得 ★★★
     if len(sys.argv) < 4:
         print("使用方法: python data_extractor.py [開始のステップ] [終了のステップ] [間隔]")
         print("例: python data_extractor.py 000000 014000 500")
@@ -192,17 +188,16 @@ def main():
     data_dir = os.path.join('/home/shok/pcans/em2d_mpi/md_mrx/dat/')
     
     SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-    OUTPUT_DIR_FIELDS = os.path.join(SCRIPT_DIR, 'extracted_data') 
-    OUTPUT_DIR_PARTICLES = os.path.join(SCRIPT_DIR, 'raw_particle_data') # 新しいディレクトリ
+    OUTPUT_DIR = os.path.join(SCRIPT_DIR, 'extracted_data') 
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+    print(f"--- 出力先ディレクトリ: {OUTPUT_DIR} ---")
     
-    os.makedirs(OUTPUT_DIR_FIELDS, exist_ok=True)
-    os.makedirs(OUTPUT_DIR_PARTICLES, exist_ok=True)
-    
-    print(f"--- 出力先ディレクトリ (場): {OUTPUT_DIR_FIELDS} ---")
-    print(f"--- 出力先ディレクトリ (粒子): {OUTPUT_DIR_PARTICLES} ---")
-    
+    # ★★★ 変更点 2: タイムステップを反復処理するループ ★★★
+    # NumPyの arange を使ってステップのリストを生成
+    # end_step も含むように + step_size
     for current_step in range(start_step, end_step + step_size, step_size):
         
+        # タイムステップの文字列を '000500' のようにゼロ埋め6桁でフォーマット
         timestep = f"{current_step:06d}" 
         print(f"\n=======================================================")
         print(f"--- ターゲットタイムステップ: {timestep} の処理を開始 ---")
@@ -212,18 +207,17 @@ def main():
         
         # --- Fortranバイナリの読み込みと結合 ---
         start_time = time.time()
-        # 粒子データの出力ディレクトリを渡す
-        result = load_and_stitch_fortran_binary(file_pattern, OUTPUT_DIR_PARTICLES, timestep)
+        result = load_and_stitch_fortran_binary(file_pattern)
         end_time = time.time()
         
         if result is None:
             print(f"警告: タイムステップ {timestep} のファイルが見つからないか、読み込みに失敗しました。スキップします。")
-            continue
+            continue # 次のステップへ
             
         global_fields, header = result
-        print(f"  -> 処理時間 (読み込み/結合/粒子保存): {end_time - start_time:.2f} 秒")
+        print(f"  -> 処理時間 (読み込み/結合): {end_time - start_time:.2f} 秒")
 
-        # --- 1. 物理領域を切り出す (場データ) ---
+        # --- 1. 物理領域を切り出す (規格化された値) ---
         phys_fields = get_physical_region(global_fields, header)
         
         # 各成分を切り出し
@@ -235,12 +229,14 @@ def main():
         ez_phys = phys_fields[5, :, :]
 
         # --- 2. 各物理量をテキストファイルに保存 ---
-        save_data_to_txt(bx_phys, 'Magnetic Field (Bx)', timestep, OUTPUT_DIR_FIELDS, 'Bx')
-        save_data_to_txt(by_phys, 'Magnetic Field (By)', timestep, OUTPUT_DIR_FIELDS, 'By')
-        save_data_to_txt(bz_phys, 'Magnetic Field (Bz)', timestep, OUTPUT_DIR_FIELDS, 'Bz')
-        save_data_to_txt(ex_phys, 'Electric Field (Ex)', timestep, OUTPUT_DIR_FIELDS, 'Ex')
-        save_data_to_txt(ey_phys, 'Electric Field (Ey)', timestep, OUTPUT_DIR_FIELDS, 'Ey')
-        save_data_to_txt(ez_phys, 'Electric Field (Ez)', timestep, OUTPUT_DIR_FIELDS, 'Ez')
+        # 処理を関数内にまとめても良いが、ここでは元の構造を維持しつつループ内に配置
+        
+        save_data_to_txt(bx_phys, 'Magnetic Field (Bx)', timestep, OUTPUT_DIR, 'Bx')
+        save_data_to_txt(by_phys, 'Magnetic Field (By)', timestep, OUTPUT_DIR, 'By')
+        save_data_to_txt(bz_phys, 'Magnetic Field (Bz)', timestep, OUTPUT_DIR, 'Bz')
+        save_data_to_txt(ex_phys, 'Electric Field (Ex)', timestep, OUTPUT_DIR, 'Ex')
+        save_data_to_txt(ey_phys, 'Electric Field (Ey)', timestep, OUTPUT_DIR, 'Ey')
+        save_data_to_txt(ez_phys, 'Electric Field (Ez)', timestep, OUTPUT_DIR, 'Ez')
         
         print(f"--- タイムステップ {timestep} の処理が完了しました ---")
 
