@@ -30,7 +30,6 @@ print(f"空間範囲: X=[{X_MIN}, {X_MAX}], Y=[{Y_MIN}, {Y_MAX}] (セル幅: {DE
 # =======================================================
 # データ抽出・計算関数 (GLOBAL定数を更新)
 # =======================================================
-
 def calculate_moments_from_particle_list(particle_data):
     """
     粒子の生データ (X, Y, Vx, Vy, Vz) から空間グリッド上の平均速度を計算する。
@@ -49,24 +48,24 @@ def calculate_moments_from_particle_list(particle_data):
     Vx_raw = particle_data[:, 2]
     Vy_raw = particle_data[:, 3]
     Vz_raw = particle_data[:, 4]
+    
+    N_total = len(X_pos) # 全粒子数
 
-    # --- インデックス計算と粒子集計のベクトル化 ---
+    # --- インデックス計算 ---
     
     # N 個のセルを区切る N+1 個の境界 (x_min, ..., x_max) を生成
     x_bins = np.linspace(x_min, x_max, NX + 1)
     y_bins = np.linspace(y_min, y_max, NY + 1)
 
-    # np.digitizeで各粒子がどのビンに属するかを示すインデックスを計算
-    # 結果は 0 (x < x_min) から NX+1 (x > x_max) の範囲で返される
+    # np.digitizeでインデックスを計算
     bin_x = np.digitize(X_pos, x_bins)
     bin_y = np.digitize(Y_pos, y_bins)
 
-    # 物理セルインデックス (0 <= index < N) を計算
-    # bin=1 を ix=0 に、bin=NX を ix=NX-1 に対応させる
+    # 物理セルインデックス (0 <= index < N) にクリップ
     ix = np.clip(bin_x - 1, 0, NX - 1)
     iy = np.clip(bin_y - 1, 0, NY - 1)
 
-    # 粒子が空間グリッド範囲内にあるかのマスクを作成（境界上の粒子は許容する）
+    # 粒子が空間グリッド範囲内にあるかのマスクを作成
     mask = (X_pos >= x_min) & (X_pos <= x_max) & \
            (Y_pos >= y_min) & (Y_pos <= y_max)
            
@@ -76,20 +75,42 @@ def calculate_moments_from_particle_list(particle_data):
     vx_masked = Vx_raw[mask]
     vy_masked = Vy_raw[mask]
     vz_masked = Vz_raw[mask]
-
-    # 空間グリッド (NY, NX) を作成
-    density = np.zeros((NY, NX))
-    vx_sum = np.zeros((NY, NX))
-    vy_sum = np.zeros((NY, NX))
-    vz_sum = np.zeros((NY, NX))
     
-    # 各粒子を対応するグリッドセルに集計 (ベクトル化)
-    # (y, x) の順でインデックスを指定
-    np.add.at(density, (iy_masked, ix_masked), 1)
-    np.add.at(vx_sum, (iy_masked, ix_masked), vx_masked)
-    np.add.at(vy_sum, (iy_masked, ix_masked), vy_masked)
-    np.add.at(vz_sum, (iy_masked, ix_masked), vz_masked)
-
+    N_masked = len(ix_masked)
+    
+    # =======================================================
+    # ★★★ デバッグ出力の追加 ★★★
+    # =======================================================
+    print("  --- デバッグ情報 ---")
+    print(f"  X-Range (設定): [{x_min}, {x_max}], Y-Range (設定): [{y_min}, {y_max}]")
+    print(f"  X-pos min/max (粒子): {np.min(X_pos):.3f} / {np.max(X_pos):.3f}")
+    print(f"  Y-pos min/max (粒子): {np.min(Y_pos):.3f} / {np.max(Y_pos):.3f}")
+    print(f"  全粒子数: {N_total}, マスクされた粒子数 (集計対象): {N_masked}")
+    
+    if N_masked == 0:
+        print("  -> **致命的警告: マスクされた粒子がゼロです。グリッド範囲と粒子座標が一致していません。**")
+        # 0の配列を返して処理を継続
+        density = np.zeros((NY, NX))
+        vx_sum = np.zeros((NY, NX))
+        vy_sum = np.zeros((NY, NX))
+        vz_sum = np.zeros((NY, NX))
+    else:
+        # マスクされた粒子のインデックスの最小値と最大値
+        print(f"  IX_masked min/max: {np.min(ix_masked)} / {np.max(ix_masked)} (NX={NX})")
+        print(f"  IY_masked min/max: {np.min(iy_masked)} / {np.max(iy_masked)} (NY={NY})")
+        
+        # 空間グリッド (NY, NX) を作成
+        density = np.zeros((NY, NX))
+        vx_sum = np.zeros((NY, NX))
+        vy_sum = np.zeros((NY, NX))
+        vz_sum = np.zeros((NY, NX))
+        
+        # 各粒子を対応するグリッドセルに集計 (ベクトル化)
+        np.add.at(density, (iy_masked, ix_masked), 1)
+        np.add.at(vx_sum, (iy_masked, ix_masked), vx_masked)
+        np.add.at(vy_sum, (iy_masked, ix_masked), vy_masked)
+        np.add.at(vz_sum, (iy_masked, ix_masked), vz_masked)
+    
     # 平均速度を計算 (ゼロ除算回避)
     density_safe = np.where(density > 0, density, 1e-12)
     
