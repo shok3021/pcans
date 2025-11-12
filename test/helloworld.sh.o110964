@@ -1,7 +1,0 @@
---- DEBUG INFO (Attempt P) ---
-Combining Manual's PBS line (mpiprocs=4) with psm3 AND mpirun -np 4
-------------------------------
- Hello from process            0  of            1
- Hello from process            0  of            1
- Hello from process            0  of            1
- Hello from process            0  of            1

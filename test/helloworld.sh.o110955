@@ -1,8 +1,0 @@
---- DEBUG INFO (Attempt N) ---
-Adding 'cd ${PBS_O_WORKDIR}' (as per User Guide 8.5.3)
-Using 'psm3' provider and mpirun -np 4
-------------------------------
- Hello from process            0  of            1
- Hello from process            0  of            1
- Hello from process            0  of            1
- Hello from process            0  of            1
