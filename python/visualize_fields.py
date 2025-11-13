@@ -13,13 +13,15 @@ def load_simulation_parameters(param_filepath):
     """
     init_param.dat (または同等のログファイル) を読み込み、
     C_LIGHT, FPI (omega_pi), DT (dt), FGI (Omega_ci),
-    VA0 (Alfvén velocity) を抽出する。
+    VA0 (Alfvén velocity), MI (イオン質量), QI (イオン電荷) を抽出する。
     """
     C_LIGHT = None
     FPI = None
     DT = None  # (dt)
     FGI = None # (Omega_ci)
     VA0 = None # (Alfvén velocity)
+    MI = None  # (イオン質量 r(1))
+    QI = None  # (イオン電荷 q(1))
     
     print(f"パラメータファイルを読み込み中: {param_filepath}")
 
@@ -32,12 +34,30 @@ def load_simulation_parameters(param_filepath):
                 if stripped_line.startswith('dx, dt, c'):
                     try:
                         parts = stripped_line.split()
-                        DT = float(parts[4])      # 5番目の要素 (dt)
+                        DT = float(parts[5])      # 6番目の要素 (dt)
                         C_LIGHT = float(parts[6]) # 7番目の要素 (c)
                         print(f"  -> 'dt' の値を検出: {DT}")
                         print(f"  -> 'c' の値を検出: {C_LIGHT}")
                     except (IndexError, ValueError):
                         print(f"  -> エラー: 'dx, dt, c' の値の解析に失敗。行: {line}")
+
+                # ★ 'Mi' (イオン質量) の値を抽出 ★
+                elif stripped_line.startswith('Mi, Me'):
+                    try:
+                        parts = stripped_line.split()
+                        MI = float(parts[3]) # 4番目の要素 (Mi)
+                        print(f"  -> 'Mi' (MI) の値を検出: {MI}")
+                    except (IndexError, ValueError):
+                        print(f"  -> エラー: 'Mi, Me' の値の解析に失敗。行: {line}")
+
+                # ★ 'Qi' (イオン電荷) の値を抽出 ★
+                elif stripped_line.startswith('Qi, Qe'):
+                    try:
+                        parts = stripped_line.split()
+                        QI = float(parts[3]) # 4番目の要素 (Qi)
+                        print(f"  -> 'Qi' (QI) の値を検出: {QI}")
+                    except (IndexError, ValueError):
+                        print(f"  -> エラー: 'Qi, Qe' の値の解析に失敗。行: {line}")
                         
                 # 'Fpi' と 'Fgi' の値を抽出
                 elif stripped_line.startswith('Fpe, Fge, Fpi Fgi'):
@@ -46,7 +66,7 @@ def load_simulation_parameters(param_filepath):
                         FPI = float(parts[7]) # 8番目の要素 (Fpi)
                         FGI = float(parts[8]) # 9番目の要素 (Fgi)
                         print(f"  -> 'Fpi' の値を検出: {FPI}")
-                        print(f"  -> 'Fgi' の値を検出: {FGI}")
+                        print(f"  -> 'Fgi' (FGI) の値を検出: {FGI}")
                     except (IndexError, ValueError):
                         print(f"  -> エラー: 'Fpe, Fge, Fpi Fgi' の値の解析に失敗。行: {line}")
 
@@ -54,7 +74,7 @@ def load_simulation_parameters(param_filepath):
                 elif stripped_line.startswith('Va, Vi, Ve'):
                     try:
                         parts = stripped_line.split()
-                        # ★★★ インデックスを 4 から 6 に修正 ★★★
+                        # ★★★ インデックスを 4 から 6 に修正 (これは元のコードの修正を維持) ★★★
                         VA0 = float(parts[6]) # 7番目の要素 (Va)
                         print(f"  -> 'Va' (VA0) の値を検出: {VA0}")
                     except (IndexError, ValueError):
@@ -65,12 +85,15 @@ def load_simulation_parameters(param_filepath):
         print("     規格化パラメータの読み込みに失敗しました。スクリプトを終了します。")
         sys.exit(1)
         
-    if C_LIGHT is None or FPI is None or DT is None or FGI is None or VA0 is None:
-        print("★★ エラー: ファイルから必要なパラメータ ('c', 'Fpi', 'dt', 'Fgi', 'Va') のいずれかを抽出できませんでした。")
+    # ★ エラーチェックに MI と QI を追加 ★
+    if C_LIGHT is None or FPI is None or DT is None or FGI is None or VA0 is None or MI is None or QI is None:
+        print("★★ エラー: ファイルから必要なパラメータ ('c', 'Fpi', 'dt', 'Fgi', 'Va', 'Mi', 'Qi') のいずれかを抽出できませんでした。")
         print("     ファイルの内容を確認してください。スクリプトを終了します。")
         sys.exit(1)
         
-    return C_LIGHT, FPI, DT, FGI, VA0
+    # ★ return に MI と QI を追加 ★
+    return C_LIGHT, FPI, DT, FGI, VA0, MI, QI
+
 # =======================================================
 # 設定と定数
 # =======================================================
@@ -89,11 +112,14 @@ os.makedirs(OUTPUT_DIR, exist_ok=True)
 PARAM_FILE_PATH = os.path.join('/Users/shohgookazaki/Documents/GitHub/pcans/em2d_mpi/md_mrx/dat/init_param.dat') 
 
 # --- パラメータの読み込みと di の計算 ---
-C_LIGHT, FPI, DT, FGI, VA0 = load_simulation_parameters(PARAM_FILE_PATH)
+C_LIGHT, FPI, DT, FGI, VA0, MI, QI = load_simulation_parameters(PARAM_FILE_PATH)
 DI = C_LIGHT / FPI # イオンスキンデプス (di = c / omega_pi)
 
-# --- ★ 規格化定数の定義 ★ ---
-B0 = 1.0  # 基準磁場 (シミュレーションの単位系)
+# --- ★ 規格化定数の定義 (B0を計算) ★ ---
+# B0 = 1.0  # <- ハードコードされた値を削除
+# Fortranコード (init__set_param) の定義に基づいて B0 を計算
+# b0  = fgi*r(1)*c/q(1)
+B0 = (FGI * MI * C_LIGHT) / QI
 # VA0 は init_param.dat から読み込んだ値を使用
 
 print(f"--- 規格化スケール (空間): d_i = {DI:.4f}")
