@@ -12,10 +12,14 @@ from scipy.integrate import cumtrapz
 def load_simulation_parameters(param_filepath):
     """
     init_param.dat (または同等のログファイル) を読み込み、
-    光速 (c) と イオン・プラズマ周波数 (Fpi) を抽出する。
+    C_LIGHT, FPI (omega_pi), DT (dt), FGI (Omega_ci),
+    VA0 (Alfvén velocity) を抽出する。
     """
     C_LIGHT = None
     FPI = None
+    DT = None  # (dt)
+    FGI = None # (Omega_ci)
+    VA0 = None # (Alfvén velocity)
     
     print(f"パラメータファイルを読み込み中: {param_filepath}")
 
@@ -24,36 +28,49 @@ def load_simulation_parameters(param_filepath):
             for line in f:
                 stripped_line = line.strip()
                 
-                # 'c' の値を抽出
+                # 'dt' と 'c' の値を抽出
                 if stripped_line.startswith('dx, dt, c'):
                     try:
                         parts = stripped_line.split()
-                        C_LIGHT = float(parts[6]) # 7番目の要素 (0-indexed)
+                        DT = float(parts[4])      # 5番目の要素 (dt)
+                        C_LIGHT = float(parts[6]) # 7番目の要素 (c)
+                        print(f"  -> 'dt' の値を検出: {DT}")
                         print(f"  -> 'c' の値を検出: {C_LIGHT}")
                     except (IndexError, ValueError):
-                        print(f"  -> エラー: 'c' の値の解析に失敗。行: {line}")
+                        print(f"  -> エラー: 'dx, dt, c' の値の解析に失敗。行: {line}")
                         
-                # 'Fpi' の値を抽出
+                # 'Fpi' と 'Fgi' の値を抽出
                 elif stripped_line.startswith('Fpe, Fge, Fpi Fgi'):
                     try:
                         parts = stripped_line.split()
-                        FPI = float(parts[7]) # 8番目の要素 (0-indexed)
+                        FPI = float(parts[7]) # 8番目の要素 (Fpi)
+                        FGI = float(parts[8]) # 9番目の要素 (Fgi)
                         print(f"  -> 'Fpi' の値を検出: {FPI}")
+                        print(f"  -> 'Fgi' の値を検出: {FGI}")
                     except (IndexError, ValueError):
-                        print(f"  -> エラー: 'Fpi' の値の解析に失敗。行: {line}")
+                        print(f"  -> エラー: 'Fpe, Fge, Fpi Fgi' の値の解析に失敗。行: {line}")
+
+                # 'Va' (VA0) の値を抽出
+                elif stripped_line.startswith('Va, Vi, Ve'):
+                    try:
+                        parts = stripped_line.split()
+                        # ★★★ インデックスを 4 から 6 に修正 ★★★
+                        VA0 = float(parts[6]) # 7番目の要素 (Va)
+                        print(f"  -> 'Va' (VA0) の値を検出: {VA0}")
+                    except (IndexError, ValueError):
+                        print(f"  -> エラー: 'Va, Vi, Ve' の値の解析に失敗。行: {line}")
 
     except FileNotFoundError:
         print(f"★★ エラー: パラメータファイルが見つかりません: {param_filepath}")
-        print("     DIの計算に失敗しました。スクリプトを終了します。")
+        print("     規格化パラメータの読み込みに失敗しました。スクリプトを終了します。")
         sys.exit(1)
         
-    if C_LIGHT is None or FPI is None:
-        print("★★ エラー: ファイルから 'c' または 'Fpi' の値を抽出できませんでした。")
+    if C_LIGHT is None or FPI is None or DT is None or FGI is None or VA0 is None:
+        print("★★ エラー: ファイルから必要なパラメータ ('c', 'Fpi', 'dt', 'Fgi', 'Va') のいずれかを抽出できませんでした。")
         print("     ファイルの内容を確認してください。スクリプトを終了します。")
         sys.exit(1)
         
-    return C_LIGHT, FPI
-
+    return C_LIGHT, FPI, DT, FGI, VA0
 # =======================================================
 # 設定と定数
 # =======================================================
@@ -69,15 +86,20 @@ OUTPUT_DIR = os.path.join(SCRIPT_DIR, 'final_plots')
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 # --- init_param.dat のパスを指定 ---
-# ★★★ 必要に応じてこのパスを修正してください ★★★
 PARAM_FILE_PATH = os.path.join('/Users/shohgookazaki/Documents/GitHub/pcans/em2d_mpi/md_mrx/dat/init_param.dat') 
 
 # --- パラメータの読み込みと di の計算 ---
-# (ループ処理の前に一度だけ実行)
-C_LIGHT, FPI = load_simulation_parameters(PARAM_FILE_PATH)
+C_LIGHT, FPI, DT, FGI, VA0 = load_simulation_parameters(PARAM_FILE_PATH)
 DI = C_LIGHT / FPI # イオンスキンデプス (di = c / omega_pi)
 
-print(f"--- 規格化スケール: イオンスキンデプス d_i = {DI:.4f} (c={C_LIGHT}, Fpi={FPI}) ---")
+# --- ★ 規格化定数の定義 ★ ---
+B0 = 1.0  # 基準磁場 (シミュレーションの単位系)
+# VA0 は init_param.dat から読み込んだ値を使用
+
+print(f"--- 規格化スケール (空間): d_i = {DI:.4f}")
+print(f"--- 規格化スケール (磁場): B0 = {B0:.4f}")
+print(f"--- 規格化スケール (速度): VA0 = {VA0:.4f}")
+print(f"--- 時間スケール: dt = {DT}, Fgi (Omega_ci) = {FGI}")
 
 # --- Fortran const モジュールからの値 ---
 GLOBAL_NX_PHYS = 320 # X方向セル数
@@ -168,7 +190,7 @@ def get_plot_range(Z):
 # プロット関数 (変更なし)
 # =======================================================
 
-def plot_single_panel(ax, X, Y, Z, Bx, By, title, label, cmap='RdBu_r', vmin=None, vmax=None):
+def plot_single_panel(ax, X, Y, Z, Bx, By, title, label, omega_t_str, cmap='RdBu_r', vmin=None, vmax=None):
     if vmin is None: vmin = Z.min()
     if vmax is None: vmax = Z.max()
     levels = np.linspace(vmin, vmax, 100)
@@ -181,6 +203,19 @@ def plot_single_panel(ax, X, Y, Z, Bx, By, title, label, cmap='RdBu_r', vmin=Non
                   Bx[::stride_y, ::stride_x], By[::stride_y, ::stride_x], 
                   color='gray', linewidth=0.5, density=1.0, 
                   arrowstyle='-', minlength=0.1, zorder=1)
+    
+    # ★★★ テキスト追加 (図の右上に配置) ★★★
+    ax.text(0.98, 0.98, omega_t_str, 
+            transform=ax.transAxes, 
+            fontsize=12, 
+            fontweight='bold',
+            color='black',
+            ha='right', 
+            va='top',
+            # 白い背景ボックスを追加
+            bbox=dict(boxstyle='round,pad=0.3', fc='white', ec='black', alpha=0.7))
+    # ★★★★★★★★★★★★★★★★★★★★★★★
+            
     ax.set_xlabel('$x/d_i$')
     ax.set_ylabel('$y/d_i$')
     ax.set_title(title)
@@ -214,75 +249,112 @@ def process_timestep(timestep):
     print(f"--- ターゲットタイムステップ: {timestep} の処理開始 ---")
     print(f"=============================================")
 
-    # --- 1. 必要なデータの読み込み ---
-    print("電磁場データを読み込み中...")
-    Bx = load_2d_field_data(timestep, 'Bx')
-    By = load_2d_field_data(timestep, 'By')
-    Bz = load_2d_field_data(timestep, 'Bz')
-    Ex = load_2d_field_data(timestep, 'Ex')
-    Ey = load_2d_field_data(timestep, 'Ey')
-    Ez = load_2d_field_data(timestep, 'Ez')
+    # --- Omega_ci * t の計算 ---
+    try:
+        it0 = int(timestep) # 文字列を整数に (例: 500)
+        # グローバル変数の DT と FGI を使用
+        omega_t_value = FGI * float(it0) * DT 
+        omega_t_str = fr"$\Omega_{{ci}}t = {omega_t_value:.2f}$"
+        print(f"計算: {omega_t_str} (it0={it0}, Fgi={FGI}, dt={DT})")
+    except Exception as e:
+        print(f"警告: Omega_ci * t の計算に失敗しました: {e}")
+        omega_t_str = r"$\Omega_{ci}t = N/A$"
 
-    # Bxがゼロ配列（読み込み失敗）の場合、形状チェックが失敗する可能性がある
-    # 読み込み失敗の時点でゼロ配列が返るので、形状チェックは不要
-    # (load_2d_field_data内でチェック＆警告するように変更済み)
+    # --- 1. 必要なデータの読み込み (Rawデータ) ---
+    print("電磁場データを読み込み中...")
+    Bx_raw = load_2d_field_data(timestep, 'Bx')
+    By_raw = load_2d_field_data(timestep, 'By')
+    Bz_raw = load_2d_field_data(timestep, 'Bz')
+    Ex_raw = load_2d_field_data(timestep, 'Ex')
+    Ey_raw = load_2d_field_data(timestep, 'Ey')
+    Ez_raw = load_2d_field_data(timestep, 'Ez')
         
     print("粒子モーメントデータを読み込み中...")
-    Vxe = load_2d_moment_data(timestep, 'electron', 'Vx')
-    Vye = load_2d_moment_data(timestep, 'electron', 'Vy')
-    Vze = load_2d_moment_data(timestep, 'electron', 'Vz')
-    Vxi = load_2d_moment_data(timestep, 'ion', 'Vx')
-    Vyi = load_2d_moment_data(timestep, 'ion', 'Vy')
-    Vzi = load_2d_moment_data(timestep, 'ion', 'Vz')
+    Vxe_raw = load_2d_moment_data(timestep, 'electron', 'Vx')
+    Vye_raw = load_2d_moment_data(timestep, 'electron', 'Vy')
+    Vze_raw = load_2d_moment_data(timestep, 'electron', 'Vz')
+    Vxi_raw = load_2d_moment_data(timestep, 'ion', 'Vx')
+    Vyi_raw = load_2d_moment_data(timestep, 'ion', 'Vy')
+    Vzi_raw = load_2d_moment_data(timestep, 'ion', 'Vz')
     
     ne_count = load_2d_moment_data(timestep, 'electron', 'density_count')
     ni_count = load_2d_moment_data(timestep, 'ion', 'density_count')
     
-    # --- 2. 派生量の計算 ---
+    # --- 2. ★ 規格化と派生量の計算 ★ ---
+    print("データを B0 と VA0 で規格化中...")
+
+    # 磁場 (B / B0)
+    Bx = Bx_raw / B0
+    By = By_raw / B0
+    Bz = Bz_raw / B0
+    
+    # 電場 (E / B0)
+    Ex = Ex_raw / B0
+    Ey = Ey_raw / B0
+    Ez = Ez_raw / B0 # <- 規格化済みEz
+
+    # 速度 (V / VA0)
+    Vxe = Vxe_raw / VA0
+    Vye = Vye_raw / VA0
+    Vze = Vze_raw / VA0
+    Vxi = Vxi_raw / VA0
+    Vyi = Vyi_raw / VA0
+    Vzi = Vzi_raw / VA0
+    
+    # 密度 (規格化なし)
+    ne = ne_count
+    ni = ni_count
+
+    # 派生量 (規格化済みの値を使って計算)
     print("派生量を計算中...")
     
-    Psi = calculate_magnetic_flux(Bx, By, DELX)
-    Te_proxy = Vxe**2 + Vye**2 + Vze**2
-    Ti_proxy = Vxi**2 + Vyi**2 + Vzi**2
+    Psi = calculate_magnetic_flux(Bx_raw, By_raw, DELX)
+    Te_proxy = Vxe_raw**2 + Vye_raw**2 + Vze_raw**2
+    Ti_proxy = Vxi_raw**2 + Vyi_raw**2 + Vzi_raw**2
     
-    J_data = {'density_count_e': ne_count, 'density_count_i': ni_count,
-              'Vx_e': Vxe, 'Vx_i': Vxi, 'Vy_e': Vye, 'Vy_i': Vyi,
-              'Vz_e': Vze, 'Vz_i': Vzi}
+    J_data = {'density_count_e': ne, 'density_count_i': ni,
+              'Vx_e': Vxe_raw, 'Vx_i': Vxi_raw, 
+              'Vy_e': Vye_raw, 'Vy_i': Vyi_raw,
+              'Vz_e': Vze_raw, 'Vz_i': Vzi_raw}
               
-    Jx, Jy, Jz, _ = calculate_current_density(Bx, By, Ex, Ey, Ez, J_data, 1.0)
+    Jx, Jy, Jz, _ = calculate_current_density(Bx_raw, By_raw, Ex_raw, Ey_raw, Ez_raw, J_data, B0)
     
-    Ez_non_ideal_electron = Ez + (Vxe * By - Vye * Bx)
-    Ez_non_ideal_ion = Ez + (Vxi * By - Vyi * Bx)
+    Ez_non_ideal_ion_raw = Ez_raw + (Vxi_raw * By_raw - Vyi_raw * Bx_raw)
+    Ez_non_ideal_ion = Ez_non_ideal_ion_raw / B0 
+
+    Ez_non_ideal_electron_raw = Ez_raw + (Vxe_raw * By_raw - Vye_raw * Bx_raw)
+    Ez_non_ideal_electron = Ez_non_ideal_electron_raw / B0
+    
     
     # --- 3. 座標グリッドの作成 ---
     X, Y = create_coordinates(GLOBAL_NX_PHYS, GLOBAL_NY_PHYS)
 
     # --- 4. 可視化実行 ---
     
-    # (a) 個別プロット用のリスト
+    # (a) 個別プロット用のリスト (★ タイトルを規格化表記に変更 ★)
     plot_components = [
-        ('Bx', Bx, 'Magnetic Field (Bx)', '$B_x/B_0$', plt.cm.RdBu_r),
-        ('By', By, 'Magnetic Field (By)', '$B_y/B_0$', plt.cm.RdBu_r),
-        ('Bz', Bz, 'Magnetic Field (Bz)', '$B_z/B_0$', plt.cm.RdBu_r),
-        ('Ex', Ex, 'Electric Field (Ex)', '$E_x/B_0$', plt.cm.coolwarm),
-        ('Ey', Ey, 'Electric Field (Ey)', '$E_y/B_0$', plt.cm.coolwarm),
-        ('Ez', Ez, 'Electric Field (Ez)', '$E_z/B_0$', plt.cm.coolwarm),
-        ('ne', ne_count, 'Electron Density', '$n_e$ (Counts)', plt.cm.viridis),
-        ('Te', Te_proxy, 'Electron Temperature (Proxy)', '$T_e$ (Proxy)', plt.cm.plasma),
-        ('ni', ni_count, 'Ion Density', '$n_i$ (Counts)', plt.cm.viridis),
-        ('Ti', Ti_proxy, 'Ion Temperature (Proxy)', '$T_i$ (Proxy)', plt.cm.plasma),
-        ('Psi', Psi, 'Magnetic Flux $\Psi$', '$\Psi$', plt.cm.seismic),
-        ('Jx', Jx, 'Current Density (Jx)', '$J_x$', plt.cm.RdBu_r),
-        ('Jy', Jy, 'Current Density (Jy)', '$J_y$', plt.cm.RdBu_r),
-        ('Jz', Jz, 'Current Density (Jz)', '$J_z$', plt.cm.RdBu_r),
-        ('Vxi', Vxi, 'Ion Velocity (Vx)', '$V_{ix}$', plt.cm.RdBu_r),
-        ('Vyi', Vyi, 'Ion Velocity (Vy)', '$V_{iy}$', plt.cm.RdBu_r),
-        ('Vzi', Vzi, 'Ion Velocity (Vz)', '$V_{iz}$', plt.cm.RdBu_r),
-        ('Vxe', Vxe, 'Electron Velocity (Vx)', '$V_{ex}$', plt.cm.RdBu_r),
-        ('Vye', Vye, 'Electron Velocity (Vy)', '$V_{ey}$', plt.cm.RdBu_r),
-        ('Vze', Vze, 'Electron Velocity (Vz)', '$V_{ez}$', plt.cm.RdBu_r),
-        ('Ez_non_ideal_e', Ez_non_ideal_electron, 'Non-Ideal $E_z$ (Electron)', '$E_z + (\\mathbf{V}_e \\times \\mathbf{B})_z$', plt.cm.jet),
-        ('Ez_non_ideal_i', Ez_non_ideal_ion, 'Non-Ideal $E_z$ (Ion)', '$E_z + (\\mathbf{V}_i \\times \\mathbf{B})_z$', plt.cm.jet),
+        ('Bx', Bx, r'Magnetic Field ($B_x/B_0$)', r'$B_x/B_0$', plt.cm.RdBu_r),
+        ('By', By, r'Magnetic Field ($B_y/B_0$)', r'$B_y/B_0$', plt.cm.RdBu_r),
+        ('Bz', Bz, r'Magnetic Field ($B_z/B_0$)', r'$B_z/B_0$', plt.cm.RdBu_r),
+        ('Ex', Ex, r'Electric Field ($E_x/B_0$)', r'$E_x/B_0$', plt.cm.coolwarm),
+        ('Ey', Ey, r'Electric Field ($E_y/B_0$)', r'$E_y/B_0$', plt.cm.coolwarm),
+        ('Ez', Ez, r'Electric Field ($E_z/B_0$)', r'$E_z/B_0$', plt.cm.coolwarm),
+        ('ne', ne, 'Electron Density', r'$n_e$ (Counts)', plt.cm.viridis),
+        ('Te', Te_proxy, 'Electron Temperature (Proxy)', r'$T_e$ (Proxy)', plt.cm.plasma),
+        ('ni', ni, 'Ion Density', r'$n_i$ (Counts)', plt.cm.viridis),
+        ('Ti', Ti_proxy, 'Ion Temperature (Proxy)', r'$T_i$ (Proxy)', plt.cm.plasma),
+        ('Psi', Psi, r'Magnetic Flux $\Psi$', r'$\Psi$', plt.cm.seismic), # <- r'' 追加
+        ('Jx', Jx, 'Current Density (Jx)', r'$J_x$', plt.cm.RdBu_r),
+        ('Jy', Jy, 'Current Density (Jy)', r'$J_y$', plt.cm.RdBu_r),
+        ('Jz', Jz, 'Current Density (Jz)', r'$J_z$', plt.cm.RdBu_r),
+        ('Vxi', Vxi, r'Ion Velocity ($V_{ix}/V_{A0}$)', r'$V_{ix}/V_{A0}$', plt.cm.RdBu_r),
+        ('Vyi', Vyi, r'Ion Velocity ($V_{iy}/V_{A0}$)', r'$V_{iy}/V_{A0}$', plt.cm.RdBu_r),
+        ('Vzi', Vzi, r'Ion Velocity ($V_{iz}/V_{A0}$)', r'$V_{iz}/V_{A0}$', plt.cm.RdBu_r),
+        ('Vxe', Vxe, r'Electron Velocity ($V_{ex}/V_{A0}$)', r'$V_{ex}/V_{A0}$', plt.cm.RdBu_r),
+        ('Vye', Vye, r'Electron Velocity ($V_{ey}/V_{A0}$)', r'$V_{ey}/V_{A0}$', plt.cm.RdBu_r),
+        ('Vze', Vze, r'Electron Velocity ($V_{ez}/V_{A0}$)', r'$V_{ez}/V_{A0}$', plt.cm.RdBu_r),
+        ('Ez_non_ideal_e', Ez_non_ideal_electron, r'Non-Ideal $E_z$ (Electron)', r'$(E_z + (\mathbf{V}_e \times \mathbf{B})_z)/B_0$', plt.cm.jet),
+        ('Ez_non_ideal_i', Ez_non_ideal_ion, r'Non-Ideal $E_z$ (Ion)', r'$(E_z + (\mathbf{V}_i \times \mathbf{B})_z)/B_0$', plt.cm.jet),
     ]
 
     # --- プロット A: 各成分を個別のサブディレクトリに出力 ---
@@ -294,13 +366,15 @@ def process_timestep(timestep):
         vmin, vmax = get_plot_range(Z)
         
         fig, ax = plt.subplots(figsize=(10, 8))
-        plot_single_panel(ax, X, Y, Z, Bx, By, f"Timestep {timestep}: {title}", label, cmap=cmap, 
+        plot_single_panel(ax, X, Y, Z, Bx, By, # Bx, Byは規格化済み
+                          f"Timestep {timestep}: {title}", label, 
+                          omega_t_str, cmap=cmap, 
                           vmin=vmin, vmax=vmax)
         
         fig.tight_layout()
         output_filename = os.path.join(SUB_DIR, f'plot_{timestep}_{tag}.png')
         plt.savefig(output_filename, dpi=200)
-        plt.close(fig) # ★ メモリリーク対策
+        plt.close(fig)
     
     print(f"-> 個別プロット {len(plot_components)} 点を {OUTPUT_DIR} 配下に保存しました。")
 
@@ -309,29 +383,30 @@ def process_timestep(timestep):
     
     fig, axes = plt.subplots(5, 4, figsize=(15, 18), sharex=True, sharey=True)
     ax_list = axes.flatten()
+    fig.suptitle(f"Timestep: {timestep}  ({omega_t_str})", fontsize=16, fontweight='bold')
     
-    # (b) 統合パネル用のリスト
+    # (b) 統合パネル用のリスト (★ タイトルを規格化表記に変更 ★)
     combined_plots = [
-        (Bx, '(a) $B_x$', '$B_x/B_0$', plt.cm.RdBu_r),
-        (By, '(b) $B_y$', '$B_y/B_0$', plt.cm.RdBu_r),
-        (Bz, '(c) $B_z$', '$B_z/B_0$', plt.cm.RdBu_r),
-        (Psi, '(d) $\Psi$', '$\Psi$', plt.cm.seismic),
-        (Ex, '(e) $E_x$', '$E_x$', plt.cm.coolwarm),
-        (Ey, '(f) $E_y$', '$E_y$', plt.cm.coolwarm),
-        (Ez, '(g) $E_z$', '$E_z$', plt.cm.coolwarm),
-        (ne_count, '(h) $n_e$', '$n_e$ Count', plt.cm.viridis),
-        (Jx, '(i) $J_x$', '$J_x$', plt.cm.RdBu_r),
-        (Jy, '(j) $J_y$', '$J_y$', plt.cm.RdBu_r),
-        (Jz, '(k) $J_z$', '$J_z$', plt.cm.RdBu_r),
-        (ni_count, '(l) $n_i$', '$n_i$ Count', plt.cm.viridis),
-        (Vxi, '(m) $V_{ix}$', '$V_{ix}$', plt.cm.RdBu_r),
-        (Vyi, '(n) $V_{iy}$', '$V_{iy}$', plt.cm.RdBu_r),
-        (Vzi, '(o) $V_{iz}$', '$V_{iz}$', plt.cm.RdBu_r),
-        (Ti_proxy, '(p) $T_i$ (Proxy)', '$T_i$', plt.cm.plasma),
-        (Vxe, '(q) $V_{ex}$', '$V_{ex}$', plt.cm.RdBu_r),
-        (Vye, '(r) $V_{ey}$', '$V_{ey}$', plt.cm.RdBu_r),
-        (Vze, '(s) $V_{ez}$', '$V_{ez}$', plt.cm.RdBu_r),
-        (Te_proxy, '(t) $T_e$ (Proxy)', '$T_e$', plt.cm.plasma),
+        (Bx, r'(a) $B_x/B_0$', r'$B_x/B_0$', plt.cm.RdBu_r),
+        (By, r'(b) $B_y/B_0$', r'$B_y/B_0$', plt.cm.RdBu_r),
+        (Bz, r'(c) $B_z/B_0$', r'$B_z/B_0$', plt.cm.RdBu_r),
+        (Psi, r'(d) $\Psi$', r'$\Psi$', plt.cm.seismic), # <- r'' 追加
+        (Ex, r'(e) $E_x/B_0$', r'$E_x/B_0$', plt.cm.coolwarm),
+        (Ey, r'(f) $E_y/B_0$', r'$E_y/B_0$', plt.cm.coolwarm),
+        (Ez, r'(g) $E_z/B_0$', r'$E_z/B_0$', plt.cm.coolwarm),
+        (ne, '(h) $n_e$', r'$n_e$ Count', plt.cm.viridis),
+        (Jx, '(i) $J_x$', r'$J_x$', plt.cm.RdBu_r),
+        (Jy, '(j) $J_y$', r'$J_y$', plt.cm.RdBu_r),
+        (Jz, '(k) $J_z$', r'$J_z$', plt.cm.RdBu_r),
+        (ni, '(l) $n_i$', r'$n_i$ Count', plt.cm.viridis),
+        (Vxi, r'(m) $V_{ix}/V_{A0}$', r'$V_{ix}/V_{A0}$', plt.cm.RdBu_r),
+        (Vyi, r'(n) $V_{iy}/V_{A0}$', r'$V_{iy}/V_{A0}$', plt.cm.RdBu_r),
+        (Vzi, r'(o) $V_{iz}/V_{A0}$', r'$V_{iz}/V_{A0}$', plt.cm.RdBu_r),
+        (Ti_proxy, '(p) $T_i$ (Proxy)', r'$T_i$', plt.cm.plasma),
+        (Vxe, r'(q) $V_{ex}/V_{A0}$', r'$V_{ex}/V_{A0}$', plt.cm.RdBu_r),
+        (Vye, r'(r) $V_{ey}/V_{A0}$', r'$V_{ey}/V_{A0}$', plt.cm.RdBu_r),
+        (Vze, r'(s) $V_{ez}/V_{A0}$', r'$V_{ez}/V_{A0}$', plt.cm.RdBu_r),
+        (Te_proxy, '(t) $T_e$ (Proxy)', r'$T_e$', plt.cm.plasma),
     ]
     
     for i, (Z, title, label, cmap) in enumerate(combined_plots):
@@ -339,18 +414,18 @@ def process_timestep(timestep):
             ax = ax_list[i]
             vmin, vmax = get_plot_range(Z)
             stream_color = 'white' if cmap == plt.cm.seismic else 'gray'
+            # (Bx, By は規格化済みの値を渡す)
             cf = plot_combined(ax, X, Y, Z, Bx, By, title, label, cmap=cmap, vmin=vmin, vmax=vmax, stream_color=stream_color)
         else:
             break
 
-    fig.tight_layout()
+    fig.tight_layout(rect=[0, 0.03, 1, 0.97]) 
     output_filename_combined = os.path.join(OUTPUT_DIR, f'plot_combined_{timestep}.png')
     plt.savefig(output_filename_combined, dpi=300)
-    plt.close(fig) # ★ メモリリーク対策
+    plt.close(fig)
     print(f"-> 全てを含む統合パネル (5x4) を {output_filename_combined} に保存しました。")
     print(f"--- タイムステップ: {timestep} の処理完了 ---")
-
-
+    
 # =======================================================
 # ★★★ スクリプト実行ブロック (ループ処理) ★★★
 # =======================================================
