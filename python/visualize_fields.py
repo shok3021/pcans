@@ -420,7 +420,7 @@ def process_timestep(timestep):
             break
 
     fig.tight_layout(rect=[0, 0.03, 1, 0.97]) 
-    output_filename_combined = os.path.join(OUTPUT_DIR, f'plot_combined_{timestep}.png')
+    output_filename_combined = os.path.join(OUTPUT_DIR, f'allcombined/plot_combined_{timestep}.png')
     plt.savefig(output_filename_combined, dpi=300)
     plt.close(fig)
     print(f"-> 全てを含む統合パネル (5x4) を {output_filename_combined} に保存しました。")
